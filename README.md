@@ -5,3 +5,4 @@ Because there are few samples compared to the numerous features, a feature selec
 
 Different models, including SVM with different kernels, Naive Bayes, and Logistic Regression, will be used for prediction, along with a Logistic Regression meta-model created from an ensemble model built on these base classifiers.  
 
+NOTE: This project is in the process of being completed, and will be finished at the end of April 2022. 
