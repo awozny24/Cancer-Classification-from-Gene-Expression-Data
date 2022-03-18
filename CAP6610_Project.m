@@ -7,69 +7,70 @@
 
 clc; clear all; close all;
 
-% %% Load Gene Expression Data
-% numvars = 203;
-% type = 'double';
-% vartype = repmat({type},1,203);
-% opts = spreadsheetImportOptions('NumVariables', numvars, 'VariableTypes', vartype);
-% opts.DataRange = 'C2';
-% data = readmatrix('dataseta_12600gene.xls', opts);
-% X = data';
-% 
-% % import gene names cells
-% clear opts
-% opts = spreadsheetImportOptions('VariableNames', 'gene');
-% opts.DataRange = 'B2';
-% genes = readmatrix('dataseta_12600gene.xls', opts);
-% 
-% %% Load Classification Types
-% % import data into cells
-% clear opts
-% opts = spreadsheetImportOptions('NumVariables', numvars);
-% opts.DataRange = 'C1:GW1';
-% labels = readmatrix('dataseta_12600gene.xls', opts);
-% 
-% % labels for different lung tissue samples
-% cancerName = {'lung adenocarcinomas',
-%               'normal lung',
-%               'SCLC',
-%               'squamous cell lung carcinomas',
-%               'pulmonary carcinoids'};
-% 
-% % class numbers for corresponding labels
-% class = {1, 2, 3, 4, 5};
-% 
-% % map the labels to a number
-% map = containers.Map(class, cancerName);
-% 
-% % store class for each corresponding label in variable y
-% y = zeros(numvars, 1);
-% for n = 1:numvars
-%     % 'lung adenocarcinomas', 
-%     if (labels{1,n}(1,1:2) == 'AD')
-%         y(n) = 1;
-%     % 'normal lung',    
-%     elseif (labels{1,n}(1,1:2) == 'NL')    
-%         y(n) = 2;        
-%     % 'SCLC',    
-%     elseif (labels{1,n}(1,1:2) == 'SM')    
-%         y(n) = 3;    
-%     % 'squamous cell lung carcinomas',    
-%     elseif (labels{1,n}(1,1:2) == 'SQ')    
-%         y(n) = 4;
-%     % 'pulmonary carcinoids',    
-%     elseif (labels{1,n}(1,1:2) == 'CO')    
-%         y(n) = 5;
-%     end
-% end
-% 
-% class = cell2mat(class);
-% numSamp = size(X, 1);
-% numFeat = size(X, 2);
-% 
+%% Load Gene Expression Data
+numvars = 203;
+type = 'double';
+vartype = repmat({type},1,203);
+opts = spreadsheetImportOptions('NumVariables', numvars, 'VariableTypes', vartype);
+opts.DataRange = 'C2';
+data = readmatrix('dataseta_12600gene.xls', opts);
+X = data';
+
+% import gene names cells
+clear opts
+opts = spreadsheetImportOptions('VariableNames', 'gene');
+opts.DataRange = 'B2';
+genes = readmatrix('dataseta_12600gene.xls', opts);
+
+%% Load Classification Types
+% import data into cells
+clear opts
+opts = spreadsheetImportOptions('NumVariables', numvars);
+opts.DataRange = 'C1:GW1';
+labels = readmatrix('dataseta_12600gene.xls', opts);
+
+% labels for different lung tissue samples
+cancerName = {'lung adenocarcinomas',
+              'normal lung',
+              'SCLC',
+              'squamous cell lung carcinomas',
+              'pulmonary carcinoids'};
+
+% class numbers for corresponding labels
+class = {1, 2, 3, 4, 5};
+
+% map the labels to a number
+map = containers.Map(class, cancerName);
+
+% store class for each corresponding label in variable y
+y = zeros(numvars, 1);
+for n = 1:numvars
+    % 'lung adenocarcinomas', 
+    if (labels{1,n}(1,1:2) == 'AD')
+        y(n) = 1;
+    % 'normal lung',    
+    elseif (labels{1,n}(1,1:2) == 'NL')    
+        y(n) = 2;        
+    % 'SCLC',    
+    elseif (labels{1,n}(1,1:2) == 'SM')    
+        y(n) = 3;    
+    % 'squamous cell lung carcinomas',    
+    elseif (labels{1,n}(1,1:2) == 'SQ')    
+        y(n) = 4;
+    % 'pulmonary carcinoids',    
+    elseif (labels{1,n}(1,1:2) == 'CO')    
+        y(n) = 5;
+    end
+end
+
+class = cell2mat(class);
+numSamp = size(X, 1);
+numFeat = size(X, 2);
+
+
 
 %% Load Data
-load('dataLoad.mat')
+%load('dataLoad.mat')
 
 
 %% ERGS
