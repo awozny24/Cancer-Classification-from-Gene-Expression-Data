@@ -8,6 +8,8 @@
 clc; clear all; close all;
 
 %% Load Gene Expression Data
+run = false;
+if (run)
 numvars = 203;
 type = 'double';
 vartype = repmat({type},1,203);
@@ -21,9 +23,12 @@ clear opts
 opts = spreadsheetImportOptions('VariableNames', 'gene');
 opts.DataRange = 'B2';
 genes = readmatrix('dataseta_12600gene.xls', opts);
+end
 
 %% Load Classification Types
 % import data into cells
+run = false;
+if (run)
 clear opts
 opts = spreadsheetImportOptions('NumVariables', numvars);
 opts.DataRange = 'C1:GW1';
@@ -66,14 +71,17 @@ end
 class = cell2mat(class);
 numSamp = size(X, 1);
 numFeat = size(X, 2);
-
+end
 
 
 %% Load Data
-%load('dataLoad.mat')
+load('dataLoad.mat')
 
 
-%% ERGS
+%% ERGS and Divide into Folds
+% perform ERGs, Standardization, and add bias
+k = 50;
+X_useful = ERGS(X, y, k, true, true);
 
 % find the indices of which samples belong to which label
 classNum = y(1);
@@ -91,106 +99,6 @@ for n = 1:numSamp
 end
 classIndicesEnd(count) = numSamp;
 
-% NOTE: classIndices contains the last index of each class in the y array
-
-% initialize mean, prior probability, and std of each feature in each class
-mu_j_c = zeros(length(class),numFeat);
-p_c = zeros(length(class), 1);
-sigma_j_c = zeros(size(mu_j_c));
-
-% initialize Effective Range Matrices
-Rupper = zeros(size(mu_j_c));
-Rlower = zeros(size(Rupper));
-
-% take gamma to be 1.732, which says that the fraction of entries of X with
-% P(|X-mu_j_c| >= gamma*sigma_j_c) <= 1/(gamma^2), is no more than 1/(gamma^2)
-% with gamma > 1.  The effective range includes at least 2/3 (1-1/3) of the
-% data objects
-prob = 1/3;
-gamma = sqrt(1/prob);
-
-% for each class
-for c = 1:length(class)
-   % find the mean of each feature (j) for each class (c)
-   mu_j_c(c,:) = mean(X(classIndicesBegin(c):classIndicesEnd(c), :));
-   
-   % find the prior probability of each class
-   p_c(c) = (classIndicesEnd(c) - classIndicesBegin(c) + 1) / numSamp;
-   
-   % find the std of each feature (j) for each class (c)
-   sigma_j_c(c,:) = std(X(classIndicesBegin(c):classIndicesEnd(c), :));
-   
-   % calculate the Effective Ranges
-   Rupper(c,:) = mu_j_c(c,:) + (1 - p_c(c)).*gamma.*sigma_j_c(c,:);
-   Rlower(c,:) = mu_j_c(c,:) - (1 - p_c(c)).*gamma.*sigma_j_c(c,:);
-
-end
-
-% sort the effective ranges of classes in ascending order to compute 
-% Overlapping Area (OAi) for each feature Xi.
-[RupperSort, Iupper] = sort(Rupper, 1);
-[RlowerSort, Ilower] = sort(Rlower, 1);
-
-% compute the overlapping area OA_j among classes of feature X_j
-OA = zeros(numFeat,1);
-psi = zeros(length(class),length(class), numFeat);
-store = [];
-for j = 1:numFeat
-    for c = 1:length(class)-1
-        for k = c+1:length(class)
-            % try Rupper and Rlower vs RupperSort and RlowerSort
-            psi(c, k, j) = max(RupperSort(c,j) - RlowerSort(k,j), 0);
-        end
-    end
-    OA(j) = sum(sum(psi(:,:,j)));
-end
-
-% compute the Area Coefficient of feature X_j
-AC = OA ./ (max(Rupper, [], 1) - max(Rlower, [], 1))';
-
-% compute the normalized area coefficient
-NAC = AC / max(AC);
-
-% compute the weight of the jth feature of X
-w = 1 - NAC;
-
-% get the indices of which features are have the most weight
-% the first n values in wInd are the n most relevant features
-[~, wInd] = sort(w, 'descend');
-
-%% PCA
-% normalize X data
-demeanX = X - sum(X,1)/numSamp;
-
-% % calculate covariance matrix
-Sigma = 1/numSamp * (X' * X);
-
-% % calculate eigenvectors
-%[U, S, V] = svd(Sigma);
-% 
-% % extract desired number of features
-% k = floor(numSamp/100);
-% Ureduce = U(:, 1:k);
-% 
-% % get k principal component vectors
-% Z = Ureduce' * X;
-
-%% Dataset
-%%%% standardize the data
-% take the mean of each feature
-mu_feat = mean(X, 1);
-
-% take the standard deviation of each feature
-std_feat = std(X, 0, 1);
-
-% standardize X
-X_standardized = (X - mu_feat) ./ std_feat;
-
-% EITHER extract k most useful features
-% OR extract number of features w/ weight > 0.9
-k = 150;
-X_useful = X_standardized(:, wInd(1:k));
-X_useful = [X_useful ones(size(X_useful, 1), 1)];
 
 % random seed
 seed = 42;
@@ -226,25 +134,16 @@ for c = 1:length(class)
    end
 end
 
-
-% % One hot encode y for creating multiple classifiers
-% % y == 1 when in the class
-% % y == -1 when not in the class
-% y_multi = cell(folds, length(class));
-% for f = 1:folds
-%     for c = 1:length(class)
-%        y_multi{f,c} = 2*(y_fold{f} == class(c)) - 1;
-%     end
-% end
-%%%% STANDARDIZE THE DATA?
-%%%% DO I USED -1 OR 0 WHEN Y IS NOT IN THE CLASS??
-%%%% NOTE: MIGHT USE LAST OR SECOND LAST SLIDE ON LEC4 INSTEAD
-
-
 % Separate the data into sets of folds for training and testing
 % training and testing for each set of folds
 train_X_fold = cell(folds, 1);
 train_y_fold = cell(folds, 1);
+
+val_data = false;
+if (val_data)
+    valTest_X_fold = cell(folds, 1);
+    valTest_y_fold = cell(folds, 1);
+end
 
 test_X_fold = cell(folds, 1);
 test_y_fold = cell(folds, 1);
@@ -253,186 +152,304 @@ test_y_fold = cell(folds, 1);
 for f = 1:folds
     
     % extract training data by taking (#fold-1) folds for training
+    count = 1;
     for i = 1:folds
         % use every fold but the current for training
         if (i ~= f)
-            train_X_fold{f} = [train_X_fold{f}; X_fold{i}];
-            train_y_fold{f} = [train_y_fold{f}; y_fold{i}];
+           
+            if (val_data)
+                if (count < 5)            
+                    train_X_fold{f} = [train_X_fold{f}; X_fold{i}];
+                    train_y_fold{f} = [train_y_fold{f}; y_fold{i}];
+                    count = count + 1;
+                else
+                    valTest_X_fold{f} = X_fold{i};
+                    valTest_y_fold{f} = y_fold{i};
+                end
+            else
+                train_X_fold{f} = [train_X_fold{f}; X_fold{i}];
+                train_y_fold{f} = [train_y_fold{f}; y_fold{i}];
+            end
         end
     end
 
     % extract testing data from current fold f
     test_X_fold{f} = X_fold{f};
     test_y_fold{f} = y_fold{f};
-
+    
 end
 
 
 %% Logistic Regression
 % regularization constants
-lambda = [-3 -2 -1 0 1 2 3];
-lambda = 10 .^ lambda;
+lambdaLR = [-3 -2 -1 0 1 2 3];
+lambdaLR = 10 .^ lambdaLR;
 
-% stores parametrs that are solved for
-theta_Logistic = cell(folds, length(lambda));
-
-% stores training and testing accuracy
-trainAccLog = zeros(folds, length(lambda));
-testAccLog  = zeros(folds, length(lambda));
-
-for f = 1:folds
-    % try each regularization constant
-    for reg = 1:length(lambda)
-        % minimize loss function to solve for parameters
-        cvx_begin
-            variables theta_log(k+1, length(class));
-            expression Reg(length(class));
-            Loss = log(sum(exp(train_X_fold{f} * theta_log),2)) - diag(train_X_fold{f}*theta_log(:, train_y_fold{f}));
-            for c = 1:length(class)
-                Reg(c) = lambda(reg) * norm(theta_log(:,c));
-            end
-            minimize(sum(Loss) + sum(Reg));
-        cvx_end
-
-        % store parameters solved for
-        theta_Logistic{f, reg} = theta_log;
-
-        % prediction on training data
-        z = train_X_fold{f} * theta_log;
-        sig = 1 ./ (1 + exp(-z));
-        [maxProb pred] = max(sig, [] , 2);
-        acc = sum(pred == train_y_fold{f})/length(pred)*100;
-        trainAccLog(f, reg) = acc;
-
-        % prediction on testing data
-        z = test_X_fold{f} * theta_log;
-        sig = 1 ./ (1 + exp(-z));
-        [maxProb pred] = max(sig, [] , 2);
-        acc = sum(pred == test_y_fold{f})/length(pred)*100;
-        testAccLog(f, reg) = acc;
-    end    
+% run training if not yet trained
+runLR = false; 
+if (runLR)
     
+    % stores parametrs that are solved for
+    theta_Logistic = cell(folds, length(lambdaLR));
+    
+    % stores training and testing accuracy
+    trainAccLog = zeros(folds, length(lambdaLR));
+    testAccLog  = zeros(folds, length(lambdaLR));
+
+    % for each fold
+    for f = 1:folds
+        % try each regularization constant
+        for reg = 1:length(lambdaLR)
+
+            % train the logistic regression model
+            theta_log = LR_Train(train_X_fold{f}, train_y_fold{f}, lambdaLR(reg));
+
+            % store parameters solved for
+            theta_Logistic{f, reg} = theta_log;
+
+            % prediction on training data
+            trainAccLog(f, reg) = LR_Predict(train_X_fold{f}, train_y_fold{f}, theta_log);
+
+            % prediction on testing data
+            testAccLog(f, reg) = LR_Predict(test_X_fold{f}, test_y_fold{f}, theta_log);
+
+        end    
+
+    end
+    
+% if model already trained, load results
+else
+   load("LR_Results_k" + num2str(k) + ".mat"); 
 end
+
 
 
 
 %% Test Logistic Regression
+% set regularization constant (5 seemed to be best value since it produced 
+% overall best generalization for each fold
+reg = find(lambdaLR == 10^0);
 
-% set regularization constant 
-reg = 5;
+% create confusion matrix
+confMatLog = zeros(length(class));
 
-% initialize confusion matrix
-conf_matrix_Log = cell(folds, 1);
-
-% create confusion matrices for testing each fold
-for f = 1:folds    
-    z = test_X_fold{f} * theta_Logistic{reg};
-    sig = 1 ./ (1 + exp(-z));
-    [maxProb pred] = max(sig, [] , 2);
-    conf_matrix_Log{f} = zeros(length(class));
-    for i = 1:length(class)
-        for j = 1:length(class)
-            conf_matrix_Log{f}(i, j) = sum(test_y_fold{f} == i & pred == j);
-        end
-    end
+% calculate confusion matrix
+for f = 1:folds
+    confMatLog = confMatLog + Confusion_Matrix(test_X_fold{f}, test_y_fold{f}, theta_Logistic{f, reg}, reg, "Logistic");
 end
-    
+
 %% SVM
 % train SVM for each class
 % loss function, hinge loss
 % regularization constants
-lambda = [-3 -2 -1 0 1 2 3];
-lambda = 10 .^ lambda;
+lambdaSVM = [-3 -2 -1 0 1 2 3];
+lambdaSVM = 10 .^ lambdaSVM;
 
-% stores parametrs that are solved for
-theta_SVM = cell(folds, length(lambda));
-
-% stores training and testing accuracy
-trainAccSVM = zeros(folds, length(lambda));
-testAccSVM  = zeros(folds, length(lambda));
-
-% for each set of folds
-for f = 1:folds
-    % matrix of 1's for adding in loss function
-    n = length(train_y_fold{f});
-    m = max(train_y_fold{f});
-    oneMat = ones(n, m);
-    vec = 1:n;
-    idx = sub2ind([n, m], vec', train_y_fold{f});
-    oneMat(idx) = 0;
+runSVM = false;
+if (runSVM)
+    % stores parameters that are solved for
+    theta_SVM = cell(folds, length(lambdaSVM));
     
-    % try each regularization constant
-    for reg = 1:length(lambda)
-        
-        % minimize loss function to solve for parameters
-        cvx_begin
-            % variables
-            variables theta_svm(k+1, length(class));
-            expression Reg(length(class));
-            
-            % Loss function
-            Loss = (train_X_fold{f} * theta_svm) - diag(train_X_fold{f} * theta_svm(:, train_y_fold{f}))*ones(1,length(class));
-            Loss = Loss + oneMat;   
-            Loss = sum(max(Loss, [], 2)); 
-            
-            % Regularization term
-            for c = 1:length(class)
-                Reg(c) = lambda(reg) * norm(theta_svm(:,c));
-            end
-            
-            % minimize the loss + regularization
-            minimize(sum(Loss) + sum(Reg));
-        cvx_end
+    % stores training and testing accuracy
+    trainAccSVM = zeros(folds, length(lambdaSVM));
+    testAccSVM  = zeros(folds, length(lambdaSVM));
 
-        % store parameters solved for
-        theta_SVM{f, reg} = theta_svm;
+    % for each set of folds
+    for f = 1:folds
 
-        % prediction on training data
-        z = train_X_fold{f} * theta_svm;
-        sig = 1 ./ (1 + exp(-z));
-        [maxProb pred] = max(sig, [] , 2);
-        acc = sum(pred == train_y_fold{f})/length(pred)*100;
-        trainAccSVM(f, reg) = acc;
+        % try each regularization constant
+        for reg = 1:length(lambdaSVM)
 
-        % prediction on testing data
-        z = test_X_fold{f} * theta_svm;
-        sig = 1 ./ (1 + exp(-z));
-        [maxProb pred] = max(sig, [] , 2);
-        acc = sum(pred == test_y_fold{f})/length(pred)*100;
-        testAccSVM(f, reg) = acc;
-    end   
+            % train SVM for parameters theta
+            theta_svm = SVM_Train(train_X_fold{f}, train_y_fold{f}, lambdaSVM(reg));
+
+            % store trained parameters
+            theta_SVM{f, reg} = theta_svm;
+
+            % prediction on training data
+            trainAccSVM(f, reg) = SVM_Predict(train_X_fold{f}, train_y_fold{f}, theta_svm);
+
+            % prediction on testing data
+            testAccSVM(f, reg) = SVM_Predict(test_X_fold{f}, test_y_fold{f}, theta_svm);
+        end   
+    end
+else
+    load("SVM_Results_k" + num2str(k) + ".mat");
 end
 
 
 %% Test SVM
-% set regularization constant 
-% 5 seemed to be best value since it produced overall
-% best generalization for each fold
-reg = 5;
+% set regularization constant (5 seemed to be best value since it produced 
+% overall best generalization for each fold
+reg = find(lambdaSVM == 10^1);
 
-% initialize confusion matrix
-conf_matrix_SVM = cell(folds, 1);
+% create confusion matrix
+confMatSVM = zeros(length(class));
 
 % create confusion matrices for testing each fold
 for f = 1:folds    
-    z = test_X_fold{f} * theta_Logistic{reg};
-    sig = 1 ./ (1 + exp(-z));
-    [maxProb pred] = max(sig, [] , 2);
-    conf_matrix_SVM{f} = zeros(length(class));
-    for i = 1:length(class)
-        for j = 1:length(class)
-            conf_matrix_SVM{f}(i, j) = sum(test_y_fold{f} == i & pred == j);
-        end
-    end
+    confMatSVM = confMatSVM + Confusion_Matrix(test_X_fold{f}, test_y_fold{f}, theta_SVM{f, reg}, reg, "SVM"); 
 end
 
 
-save('train_test_folds.mat', 'train_X_fold', 'train_y_fold');
-save('LR_Results.mat', 'theta_Logistic', 'trainAccLog', 'testAccLog', 'conf_matrix_Log');
-save('SVM_Results.mat', 'theta_SVM', 'trainAccSVM', 'testAccSVM', 'conf_matrix_SVM');
+
+% %% Save Parameters and Results if needed
+% save('train_test_folds.mat', 'train_X_fold', 'train_y_fold');
+% save('LR_Results.mat', 'theta_Logistic', 'trainAccLog', 'testAccLog', 'conf_matrix_Log');
+% save('SVM_Results.mat', 'theta_SVM', 'trainAccSVM', 'testAccSVM', 'confMatSVM');
+
+%% SVM Gaussian Kernel
+% regularization parameters
+lambdaRBF = [-3 -2 -1 0 1 2 3];
+lambdaRBF = 10 .^ lambdaRBF;
+
+% stores parameters that are solved for
+theta_SVM_RBF = cell(folds, length(lambdaRBF));
+
+% stores training and testing accuracy
+trainAccSVMRBF = zeros(folds, length(lambdaRBF));
+testAccSVMRBF  = zeros(folds, length(lambdaRBF));
+
+run = false;
+if (run)
+% for each set of folds
+for f = 1:folds
+
+    % try each regularization constant
+    for reg = 1:length(lambdaRBF)
+
+        % get transformed features for kernel trick
+        trainSz = size(train_X_fold{f},1);
+        testSz = size(test_X_fold{f},1);
+        dataF = [train_X_fold{f}; test_X_fold{f}];
+        dataF = SimilarityRBF(dataF, true, false);
+        
+        % train SVM for parameters theta
+        theta_svm_rbf = SVM_Train(dataF(1:trainSz,:), train_y_fold{f}, lambdaRBF(reg));
+
+        % store trained parameters
+        theta_SVM_RBF{f, reg} = theta_svm_rbf;
+
+        % prediction on training data
+        trainAccSVMRBF(f, reg) = SVM_Predict(dataF(1:trainSz,:), train_y_fold{f}, theta_svm_rbf);
+
+        % prediction on testing data
+        testAccSVMRBF(f, reg) = SVM_Predict(dataF(trainSz+1:end,:), test_y_fold{f}, theta_svm_rbf);
+    end   
+end
+else
+   load("SVM_RBF_Results_k" + num2str(k) + ".mat"); 
+end
 
 
 
+%% Test SVM Gaussian Kernel
+% set regularization constant (5 seemed to be best value since it produced 
+% overall best generalization for each fold
+reg = find(lambdaRBF == 10^0);
+
+% create confusion matrix
+confMatRBF = zeros(length(class));
+
+% create confusion matrices for testing each fold
+for f = 1:folds  
+    % get transformed features for kernel trick
+    trainSz = size(train_X_fold{f},1);
+    testSz = size(test_X_fold{f},1);
+    dataF = [train_X_fold{f}; test_X_fold{f}];
+    dataF = SimilarityRBF(dataF, true, false);
+    
+    % calculate confusion matrix
+    confMatRBF = confMatRBF + Confusion_Matrix(dataF(trainSz+1:end,:), test_y_fold{f}, theta_SVM_RBF{f, reg}, reg, "SVM"); 
+end
+
+
+%% SVM Polynomial Kernel
+% regularization parameters
+lambdaPoly = [-9, -8, -7];
+lambdaPoly = 10 .^ lambdaPoly;
+
+% stores parameters that are solved for
+theta_SVM_Poly = cell(folds, length(lambdaPoly));
+
+% stores training and testing accuracy
+trainAccSVMPoly = zeros(folds, length(lambdaPoly));
+testAccSVMPoly  = zeros(folds, length(lambdaPoly));
+
+
+run = false;
+if (run)
+% for each set of folds
+for f = 1:folds
+    
+    % try each regularization constant
+    for reg = 1:length(lambdaPoly)
+        
+        % combine data for kernel trick transformation
+        trainSz = size(train_X_fold{f},1);
+        dataF = [train_X_fold{f}; test_X_fold{f}];
+        
+        % parameters for transformation
+        slope = 1;
+        intercept = 40; % best values were in order: 40, -111, -35
+                        % 100 generalized well too
+        degree = 1;     % best degree was 1, then 2
+        bias_exist = true;
+        add_bias = false;
+        
+        % use polynomial kernel trick on data
+        dataF = SimilarityPoly(dataF, degree, slope, intercept, bias_exist, add_bias);
+        
+        % train SVM for parameters theta
+        theta_svm_poly = SVM_Train(dataF(1:trainSz,:), train_y_fold{f}, lambdaPoly(reg));
+
+        % store trained parameters
+        theta_SVM_Poly{f, reg} = theta_svm_poly;
+
+        % prediction on training data
+        trainAccSVMPoly(f, reg) = SVM_Predict(dataF(1:trainSz,:), train_y_fold{f}, theta_svm_poly);
+
+        % prediction on testing data
+        testAccSVMPoly(f, reg) = SVM_Predict(dataF(trainSz+1:end,:), test_y_fold{f}, theta_svm_poly);
+    end   
+end
+else
+   load("SVM_Poly_Results_k" + num2str(k) + ".mat"); 
+end
+
+
+%% Test SVM Polynomial Kernel
+% set regularization constant (4 seemed to be best value since it produced 
+% overall best generalization for each fold
+reg = find(lambdaPoly == 10^(-8));
+
+% create confusion matrix
+confMatPoly = zeros(length(class));
+
+% create confusion matrices for testing each fold
+for f = 1:folds  
+    % combine data for kernel trick transformation
+    trainSz = size(train_X_fold{f},1);
+    testSz = size(test_X_fold{f},1);
+    dataF = [train_X_fold{f}; test_X_fold{f}];
+    
+    % parameters for transformation
+    slope = 1;
+    intercept = 40; % best values were in order: 40, -111, -35
+                    % 100 generalized well too
+    degree = 1;     % best degree was 1, then 2
+    bias_exist = true;
+    add_bias = false;
+        
+
+    % use polynomial kernel trick on data
+    dataF = SimilarityPoly(dataF, degree, slope, intercept, bias_exist, add_bias);
+
+    % calculate confusion matrix
+    confMatPoly = confMatPoly + Confusion_Matrix(dataF(trainSz+1:end,:), test_y_fold{f}, theta_SVM_Poly{f, reg}, reg, "SVM"); 
+end
+
+ 
 %% Naive Bayes
 % stores data as discrete values in folds
 train_X_fold_Disc1 = cell(folds, 1);
@@ -440,14 +457,14 @@ train_X_fold_Disc2 = cell(folds, 1);
 test_X_fold_Disc1  = cell(folds, 1);
 test_X_fold_Disc2  = cell(folds, 1);
 
-
+% initialize train and test folds
 for f = 1:folds
    train_X_fold_Disc1{f} = zeros(size(train_X_fold{f}(:,1:k))); 
    test_X_fold_Disc1{f}  = zeros(size(test_X_fold{f}(:,1:k))); 
 end
 
 
-%%% Discretization Method 1 %%%
+%% Discretization Method
 % set gene expression values to discrete values
 % 1  - overexpressed
 % 0  - normally expressed
@@ -471,113 +488,480 @@ predTrain = cell(folds, 1);
 trainAccNBDisc1 = zeros(folds, 1);
 testAccNBDisc1 = zeros(folds, 1);
 store = [139, 17, 5, 21, 20, 0, 0];
+predProb = cell(folds, 1);
+predProbTrain = cell(folds, 1);
+NBProb = cell(folds,1);
+NBProbTrain = cell(folds,1);
 
 % calculate the probability of a given class pc and p(x_j | y=c)
 for f = 1:folds
-%%% training
+%%%%%%%%%%% training %%%%%%%%%%%
     for c = 1:length(class)
         p_c(f, c) = sum(train_y_fold{f} == class(c)) / length(train_y_fold{f});
-        p{f} = [p{f}; sum(train_X_fold_Disc1{f}(train_y_fold{f}==c,:)) / sum(y==c)];
+        p{f} = [p{f}; sum(train_X_fold_Disc1{f}(train_y_fold{f}==c,:)) / sum(train_y_fold{f}==c)];
     end
     
-%%% testing 
+%%%%%%%%%%% testing  %%%%%%%%%%%
     % training accuracy
     for n = 1:size(train_X_fold{f}, 1)
-        p_x_given_y = 1 + train_X_fold_Disc1{f}(n,:) .* p{f} + (1 - train_X_fold_Disc1{f}(n,:)) .* (1 - p{f});
-        p_y_given_x = p_c(f, :)' .* prod(p_x_given_y, 2);
+        p_y_given_x = log(p_c(f,:)') + sum(train_X_fold_Disc1{f}(n,:) .* log(1+p{f}), 2) + sum((1 - train_X_fold_Disc1{f}(n,:)) .* log(1 - p{f} + 1),2);
+        NBProbTrain{f} = [NBProbTrain{f}; p_y_given_x'];
         [M I] = max(p_y_given_x);
+        predProbTrain{f} = [predProbTrain{f}; M];
         predTrain{f} = [predTrain{f}; I];
-%         store = [store; p_y_given_x' train_y_fold{f}(n,:) predTrain{f}(n)];
     end
     
+    % calculate training accuracy
     trainAccNBDisc1(f) = sum(predTrain{f} == train_y_fold{f}) / length(predTrain{f}) * 100;
 
     % testing accuracy
     for n = 1:size(test_X_fold{f}, 1)
-        p_x_given_y = 1 + test_X_fold_Disc1{f}(n,:) .* p{f} + (1 - test_X_fold_Disc1{f}(n,:)) .* (1 - p{f});
-        p_y_given_x = p_c(f, :)' .* prod(p_x_given_y, 2);
+        p_y_given_x = log(p_c(f,:)') + sum(test_X_fold_Disc1{f}(n,:) .* log(1+p{f}), 2) + sum((1 - test_X_fold_Disc1{f}(n,:)) .* log(1 - p{f} + 1),2);
+        NBProb{f} = [NBProb{f}; p_y_given_x'];
         [M I] = max(p_y_given_x);
+        predProb{f} = [predProb{f}; M];
         pred{f} = [pred{f}; I];
-        store = [store; p_y_given_x' test_y_fold{f}(n,:) pred{f}(n)];
     end
     
+    % calculate testing accuracy
     testAccNBDisc1(f) = sum(pred{f} == test_y_fold{f}) / length(pred{f}) * 100;
 end
 
+%% Test Naive Bayes
 
-%%
-%%% Discretization Method 2 %%%
-% EWD - Equal Width Distribution
-
-% initialize training and testing data
-for f = 1:folds
-   train_X_fold_Disc2{f} = zeros(size(train_X_fold{f}(:,1:k))); 
-   test_X_fold_Disc2{f}  = zeros(size(test_X_fold{f}(:,1:k)));
-end
-   
-% Divide the data into k (user-defined) discrete bins
-% Width = (max(X) - min(X)) / k
-numBins = 10;
-bins = (max(max(X_useful)) - min(min(X_useful))) / numBins;
-
-% discretize data based on overexpression or underexpression
-for f = 1:folds
-    thres_over  = min(min(train_X_fold{f}));
-    thres_under = thres_over + bins;
-    for b = 1:numBins
-        train_X_fold_Disc2{f} = train_X_fold_Disc2{f} + b*(train_X_fold{f}(:,1:k) >= thres_over & train_X_fold{f}(:,1:k) < thres_under);
-        test_X_fold_Disc2{f}  = test_X_fold_Disc2{f}  + b*(test_X_fold{f}(:,1:k)  >= thres_over & test_X_fold{f}(:,1:k)  < thres_under);
-        thres_over  = min(min(train_X_fold{f})) + b*bins;
-        thres_under = thres_over + bins;
+confMatNB = zeros(max(y), max(y));
+% create confusion matrix for correct and incorrect predictions
+for i = 1:max(y)
+    for j = 1:max(y)
+        for f = 1:folds
+            confMatNB(i, j) = confMatNB(i,j) + sum(test_y_fold{f} == i & pred{f} == j);
+        end
     end
 end
-
-% initialize variables to store probabilities, predictions, and accuracies
-p = cell(folds, 1);
-p_c = zeros(folds, length(class));
-p_x_given_y = [];
-p_y_given_x = [];
-pred = cell(folds, 1);
-predTrain = cell(folds, 1);
-trainAccNBDisc2 = zeros(folds, 1);
-testAccNBDisc2 = zeros(folds, 1);
-store = [139, 17, 5, 21, 20, 0, 0];
-
-% calculate the probability of a given class pc and p(x_j | y=c)
-for f = 1:folds
-%%% training
-    for c = 1:length(class)
-        p_c(f, c) = sum(train_y_fold{f} == class(c)) / length(train_y_fold{f});
-        p{f} = [p{f}; sum(train_X_fold_Disc2{f}(train_y_fold{f}==c,:)) / sum(y==c)];
-    end
     
-%%% testing 
-    % training accuracy
-    for n = 1:size(train_X_fold{f}, 1)
-%         p_x_given_y = prod(p{f} .^ train_X_fold_Disc2{f}(n, :), 2);
-        p_x_given_y = sum(train_X_fold_Disc2{f}(n,:) .* log10(p{f}), 2);
-        p_y_given_x = p_x_given_y .* p_c(f, :)';
-        
-%         p_y_given_x(i,:) = prod(p' .^ X_test(i,:),2);
-%         p_y_given_x(i,:) = p_y_given_x(i,:) .* py';
-        
-        [M I] = max(p_y_given_x);
-        predTrain{f} = [predTrain{f}; I];
-        store = [store; p_y_given_x' train_y_fold{f}(n,:) predTrain{f}(n)];
-    end
-    
-    trainAccNBDisc2(f) = sum(predTrain{f} == train_y_fold{f}) / length(predTrain{f}) * 100;
 
-    % testing accuracy
-    for n = 1:size(test_X_fold{f}, 1)
-        p_x_given_y = sum(test_X_fold_Disc2{f}(n,:) .* log10(p{f}), 2);
-        p_y_given_x = p_x_given_y .* p_c(f, :)';
-        [M I] = max(p_y_given_x);
-        pred{f} = [pred{f}; I];
-        store = [store; p_y_given_x' test_y_fold{f}(n,:) pred{f}(n)];
-    end
     
-    testAccNBDisc2(f) = sum(pred{f} == test_y_fold{f}) / length(pred{f}) * 100;
+
+%% Ensemble Meta-Model w/ LR Base w/o Kernel
+
+%%%% best Logistic Regression Model %%%%
+% get best regularization parmater
+[~, best] = max(mean(testAccLog), [], 2);
+
+% get average of theta values from each fold
+thetaLR = theta_Logistic{1, best};
+for f = 2:folds
+    thetaLR = thetaLR + theta_Logistic{f, best};
 end
+thetaLR = thetaLR / folds;
+
+%%%% best SVM Model
+% get best regularization parameter
+[~, best] = max(mean(testAccSVM), [], 2);
+% get average of theta values from each fold
+thetaSVM = theta_SVM{1, best};
+for f = 2:folds
+   thetaSVM = thetaSVM + theta_SVM{f, best};
+end
+thetaSVM = thetaSVM / folds;
+
+
+%%%% best SVM Gaussian Kernel Model %%%%
+% get best regularization parameter
+[~, best] = max(mean(testAccSVMRBF), [], 2);
+
+thetaRBF = theta_SVM_RBF{1, best};
+for f = 2:folds
+   thetaRBF = thetaRBF + theta_SVM_RBF{f, best};
+end
+thetaRBF = thetaRBF / folds;
+
+%%%% best SVM Polynomial Kernel w/ Degree 2 Model %%%%
+% get best regularization parameter
+[~, best] = max(mean(testAccSVMPoly), [], 2);
+
+thetaPoly = theta_SVM_Poly{1, best};
+for f = 2:folds
+   thetaPoly = thetaPoly + theta_SVM_Poly{f, best}; 
+end
+thetaPoly = thetaPoly / folds;
+
+% create ensemble stacking training data for each fold
+trainX = cell(folds, 1);
+testX = cell(folds, 1);
+
+% make prediction based on average theta values
+for f = 1:folds
+    % Logistic Regression prediction
+    trainX{f} = [trainX{f} train_X_fold{f}*thetaLR];
+    testX{f} = [testX{f} test_X_fold{f}*thetaLR];
+
+    % SVM Prediction
+    trainX{f} = [trainX{f} train_X_fold{f}*thetaSVM];
+    testX{f} = [testX{f} test_X_fold{f}*thetaSVM];
+      
+     % Naive Bayes Prediction
+     trainX{f} = [trainX{f} NBProbTrain{f}];
+     testX{f} = [testX{f} NBProb{f}];
+end
+
+
+%%% Train Logistic Regression Meta Model w/ No Kernel
+% for each fold
+
+% regularization parameters
+lambda = [-3 -2 -1 0 1 2 3];
+lambda = 10 .^ lambda;
+
+% don't need to train model if trained model has been saved
+runMeta = false;
+if (runMeta)
+    
+% stores training and testing accuracy
+trainAccMeta = zeros(folds, length(lambda));
+testAccMeta  = zeros(folds, length(lambda));
+
+% stores parameters that are solved for
+theta_Meta = cell(folds, length(lambda));
+
+for f = 1:folds
+    % try each regularization constant
+    for reg = 1:length(lambda)
+
+        fprintf("Fold %i Reg %i\n", f, reg);
+        % train the logistic regression model
+        theta_meta = LR_Train(trainX{f}, train_y_fold{f}, lambda(reg));
+
+        % store parameters solved for
+        theta_Meta{f, reg} = theta_meta;
+
+        % prediction on training data
+        trainAccMeta(f, reg) = LR_Predict(trainX{f}, train_y_fold{f}, theta_meta);
+
+        % prediction on testing data
+        testAccMeta(f, reg) = LR_Predict(testX{f}, test_y_fold{f}, theta_meta);
+    end    
+
+end
+else
+    load("MetaModelCorr_NoKernel_k" + num2str(k) + ".mat");
+end
+
+%% Test Ensemble with No Kernel
+% set regularization constant (5 seemed to be best value since it produced 
+% overall best generalization for each fold
+reg = find(lambdaLR == 10^-2);
+
+% create confusion matrix
+confMatMetaNoKern = zeros(length(class));
+
+% calculate confusion matrix
+for f = 1:folds
+    confMatMetaNoKern = confMatMetaNoKern + Confusion_Matrix(testX{f}, test_y_fold{f}, theta_Meta{f, reg}, reg, "Logistic");
+end
+
+
+%% Ensemble Meta-Model w/ LR Base w/o Kernel
+
+% create ensemble stacking training data for each fold
+trainX = cell(folds, 1);
+testX = cell(folds, 1);
+
+% make prediction based on average theta values
+for f = 1:folds
+    % Logistic Regression prediction
+    trainX{f} = [trainX{f} train_X_fold{f}*thetaLR];
+    testX{f} = [testX{f} test_X_fold{f}*thetaLR];
+
+    % SVM Prediction
+    trainX{f} = [trainX{f} train_X_fold{f}*thetaSVM];
+    testX{f} = [testX{f} test_X_fold{f}*thetaSVM];
+
+    % SVM Gaussian Kernel Prediction
+     % get transformed features for kernel trick
+     trainSz = size(train_X_fold{f},1);
+     testSz = size(test_X_fold{f},1);
+     dataF = [train_X_fold{f}; test_X_fold{f}];
+     dataF = SimilarityRBF(dataF, true, false);
+     
+     % prediction
+     trainX{f} = [trainX{f} dataF(1:trainSz,:)*thetaRBF];
+     testX{f} = [testX{f} dataF(trainSz+1:end,:)*thetaRBF];
+     
+    % SVM Polynomial Degree 1 Kernel Prediction
+     % parameters for transformation
+     slope = 1;
+     intercept = 40;
+     degree = 1;
+     bias_exist = true;
+     add_bias = false;
+     
+     % combine data for kernel trick transformation
+     dataF = [train_X_fold{f}; test_X_fold{f}];
+     dataF = SimilarityPoly(dataF, degree, slope, intercept, bias_exist, add_bias);
+     
+     % prediction
+     trainX{f} = [trainX{f} dataF(1:trainSz,:)*thetaPoly];
+     testX{f} = [testX{f} dataF(trainSz+1:end,:)*thetaPoly];
+      
+     % Naive Bayes Prediction
+     trainX{f} = [trainX{f} NBProbTrain{f}];
+     testX{f} = [testX{f} NBProb{f}];
+end
+
+%%% Train Logistic Regression Meta Model
+
+% regularization parameters
+lambda = [-3 -2 -1 0 1 2 3];
+lambda = 10 .^ lambda;
+
+% don't need to run if trained model is saved
+runMeta = false;
+if (runMeta)
+    
+% stores training and testing accuracy
+trainAccMeta = zeros(folds, length(lambda));
+testAccMeta  = zeros(folds, length(lambda));
+
+% stores parameters that are solved for
+theta_Meta = cell(folds, length(lambda));
+
+for f = 1:folds
+    % try each regularization constant
+    for reg = 1:length(lambda)
+
+        fprintf("Fold %i Reg %i\n", f, reg);
+        % train the logistic regression model
+        theta_meta = LR_Train(trainX{f}, train_y_fold{f}, lambda(reg));
+
+        % store parameters solved for
+        theta_Meta{f, reg} = theta_meta;
+
+        % prediction on training data
+        trainAccMeta(f, reg) = LR_Predict(trainX{f}, train_y_fold{f}, theta_meta);
+
+        % prediction on testing data
+        testAccMeta(f, reg) = LR_Predict(testX{f}, test_y_fold{f}, theta_meta);
+    end    
+
+end
+else
+    load("MetaModelCorr_withKernel_k" + num2str(k) + ".mat");
+end
+
+%% Test Ensemble with Kernel
+% set regularization constant (5 seemed to be best value since it produced 
+% overall best generalization for each fold
+reg = find(lambdaLR == 10^(-2));
+
+% create confusion matrix
+confMatMetaWithKern = zeros(max(y), max(y));
+
+% calculate confusion matrix
+for f = 1:folds
+    confMatMetaWithKern = confMatMetaWithKern + Confusion_Matrix(testX{f}, test_y_fold{f}, theta_Meta{f, 1}, 1, "Logistic");
+end
+
+
+%% Function: ERGS.m
+%
+% <include>ERGS.m</include>
+
+%% Function: LR_Train.m
+%
+% <include>LR_Train.m</include>
+
+%% Function: SVM_Train.m
+%
+% <include>SVM_Train.m</include>
+
+%% Function: SimilarityPoly.m
+%
+% <include>SimilarityPoly.m</include>
+
+%% Function: SimilarityRBF.m
+%
+% <include>SimilarityRBF.m</include>
+
+%% Function: LR_Predict.m
+%
+% <include>LR_Predict.m</include>
+
+%% Function: SVM_Predict.m
+%
+% <include>SVM_Predict.m</include>
+
+%% Function: Confusion_Matrix.m
+%
+% <include>Confusion_Matrix.m</include>
+
+
+
+%% Create Bar Graph
+barData = zeros(7, 3);
+% plot (best regularization) test accuracy for each model
+
+% number of features
+s = ["50", "150", "500"];
+
+% different models
+model = ["LR_Results";
+         "SVM_Results";
+         "NB_Results";
+         "SVM_Poly_Results";
+         "SVM_RBF_Results";
+         "MetaModelCorr_NoKernel";
+         "MetaModelCorr_withKernel"];
+          
+varName = ["Log";
+           "SVM";
+           "NBDisc1";
+           "SVMPoly";
+           "SVMRBF";
+           "Meta";
+           "Meta"];          
+
+% for each model, for each #features, get the best testing accuracy
+for m = 1:length(model)
+    for a = 1:3
+        name = model(m) + "_k" + s(a) + ".mat"; 
+        load(name);
+        var = eval("testAcc" + varName(m));
+        [~, best] = max(mean(var), [], 2);
+        barData(m,a) = mean(var(:, best));
+    end
+end
+
+
+% plot bar chart
+labNames = ["LR";
+           "SVM";
+           "NBC";
+           "SVMPoly";
+           "SVMRBF";
+           "Meta w/ Kern.";
+           "Meta no Kern"];
+
+lab = categorical(labNames);
+lab = reordercats(lab,labNames);
+bar(lab, barData, 1.0)
+yaxis([90,100])
+leg = legend("50", "150", "500", "Location", "northwest");
+title(leg, "# Features")
+title('Test Accuracies of Each Model')
+ylabel('% Accuracy')
+
+
+
+
+%% Plot Results
+% Logistic Accuracy w/ Regularization
+lambda = [-3 -2 -1 0 1 2 3];
+folds = 6;
+count = 1;
+for s = ["50", "150", "500"]
+    name = sprintf('LR_Results_k%s.mat', s); 
+    load(name)
+    plotTrainAcc = mean(trainAccLog);
+    plotTestAcc = mean(testAccLog);
+    figure(count)
+    plot(lambda, plotTrainAcc, lambda, plotTestAcc)
+    xlabel('log(\lambda)')
+    ylabel('% Accuracy')
+    title("Logistic Regression: Regularization Effect on Accuracy w/ " + s + " Features");
+    legend('Train Acc.', 'Test Acc.')
+    count = count + 1;
+end
+
+% SVM Accuracy w/ Regularization
+lambda = [-3 -2 -1 0 1 2 3];
+folds = 6;
+for s = ["50", "150", "500"]
+    name = sprintf('SVM_Results_k%s.mat', s); 
+    load(name)
+    plotTrainAcc = mean(trainAccSVM);
+    plotTestAcc = mean(testAccSVM);
+    figure(count)
+    plot(lambda, plotTrainAcc, lambda, plotTestAcc)
+    xlabel('log(\lambda)')
+    ylabel('% Accuracy')
+    title("SVM: Regularization Effect on Accuracy w/ " + s + " Features");
+    legend('Train Acc.', 'Test Acc.')
+    count = count + 1;
+end
+
+% Naive Bayes Accuracy w/ Regularization
+figure(count); count = count + 1;
+plot([1:6], trainAccNBDisc1, [1:6], testAccNBDisc1);
+
+% SVM w/ Gaussian Kernel Accuracy w/ Regularization
+lambda = [-3 -2 -1 0 1 2 3];
+folds = 6;
+for s = ["50", "150", "500"]
+    name = sprintf('SVM_RBF_Results_k%s.mat', s); 
+    load(name)
+    plotTrainAcc = mean(trainAccSVMRBF);
+    plotTestAcc = mean(testAccSVMRBF);
+    figure(count)
+    plot(lambda, plotTrainAcc, lambda, plotTestAcc)
+    xlabel('log(\lambda)')
+    ylabel('% Accuracy')
+    title("SVM w/ Gaussian Kernel: Regularization Effect on Accuracy w/ " + s + " Features");
+    legend('Train Acc.', 'Test Acc.')
+    count = count + 1;
+end
+
+% SVM w/ Polynomial Kernel Accuracy w/ Regularization
+lambda = [-9 -8 -7];
+folds = 6;
+for s = ["50", "150", "500"]
+    name = sprintf('SVM_Poly_Results_k%s.mat', s); 
+    load(name)
+    plotTrainAcc = mean(trainAccSVMPoly);
+    plotTestAcc = mean(testAccSVMPoly);
+    figure(count)
+    plot(lambda, plotTrainAcc, lambda, plotTestAcc)
+    xlabel('log(\lambda)')
+    ylabel('% Accuracy')
+    title("SVM w/ Polynomial Kernel (deg 2): Regularization Effect on Accuracy w/ " + s + " Features");
+    legend('Train Acc.', 'Test Acc.')
+    count = count + 1;
+end
+
+
+% Meta Model w/p Kernels Accuracy w/ Regularization
+lambda = [-3 -2 -1 0 1 2 3];
+folds = 6;
+for s = ["50", "150", "500"]
+    name = sprintf('MetaModelCorr_NoKernel_k%s.mat', s); 
+    load(name)
+    plotTrainAcc = mean(trainAccMeta);
+    plotTestAcc = mean(testAccMeta);
+    figure(count)
+    plot(lambda, plotTrainAcc, lambda, plotTestAcc)
+    xlabel('log(\lambda)')
+    ylabel('% Accuracy')
+    title("Meta Model w/ Kernels: Regularization Effect on Accuracy w/ " + s + " Features");
+    legend('Train Acc.', 'Test Acc.')
+    count = count + 1;
+end
+
+% Meta Model w/p Kernels Accuracy w/ Regularization
+lambda = [-3 -2 -1 0 1 2 3];
+folds = 6;
+for s = ["50", "150", "500"]
+    name = sprintf('MetaModelCorr_withKernel_k%s.mat', s); 
+    load(name)
+    plotTrainAcc = mean(trainAccMeta);
+    plotTestAcc = mean(testAccMeta);
+    figure(count)
+    plot(lambda, plotTrainAcc, lambda, plotTestAcc)
+    xlabel('log(\lambda)')
+    ylabel('% Accuracy')
+    title("Meta Model w/ No Kernels: Regularization Effect on Accuracy w/ " + s + " Features");
+    legend('Train Acc.', 'Test Acc.')
+    count = count + 1;
+end
+
 
 
